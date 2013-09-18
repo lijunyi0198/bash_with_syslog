@@ -1,0 +1,189 @@
+diff -up bash-4.1/shell.c.dajie bash-4.1/shell.c 
+--- bash-4.1/shell.c.dajie	2009-11-19 23:05:54.000000000 +0800
++++ bash-4.1/shell.c	2013-04-11 15:19:57.918868152 +0800
+@@ -83,6 +83,10 @@
+ #  include <opennt/opennt.h>
+ #endif
+ 
++/* add by jiajun.zhang / dajie bashlogpatch */
++#include <syslog.h>
++#include <sys/types.h>
++
+ #if !defined (HAVE_GETPW_DECLS)
+ extern struct passwd *getpwuid ();
+ #endif /* !HAVE_GETPW_DECLS */
+@@ -568,6 +572,12 @@ main (argc, argv, env)
+   if (interactive_shell)
+     {
+       char *term, *emacs;
++      /* add by jiajun.zhang / dajie syslog patch */
++      uid_t ruid, euid;
++      pid_t pid, ppid, sid;
++      struct passwd *pwd_ent;
++      char *principal, *krb5;
++      char *empty="";
+ 
+       term = get_string_value ("TERM");
+       emacs = get_string_value ("EMACS");
+@@ -580,6 +590,30 @@ main (argc, argv, env)
+       running_under_emacs = (emacs != 0) || (term && STREQN (term, "emacs", 5));
+       running_under_emacs += term && STREQN (term, "eterm", 5) && emacs && strstr (emacs, "term");
+ 
++      /* add by jiajun.zhang / dajie syslog patch */
++      openlog("bash", LOG_PID, LOG_LOCAL6);
++      ruid = getuid();
++      euid = geteuid();
++      pid = getpid();
++      ppid = getppid();
++      sid  = getsid(pid);
++      pwd_ent = getpwuid(ruid);
++      /* get kerberos principal */
++      principal = getenv("KRB5CPRINCIPAL");
++      if(principal != NULL) {
++	krb5 = principal;
++	unsetenv("KRB5CPRINCIPAL");
++      }else {
++        krb5 = empty;
++      }
++      if( NULL == pwd_ent) {
++        syslog(LOG_LOCAL6 | LOG_INFO, "ISHELL(NOPWDENT): KRB5=%s RUID=%d EUID=%d PID=%d PPID=%d SID=%d",krb5,ruid,euid,pid,ppid,sid);
++      }else {
++        syslog(LOG_LOCAL6 | LOG_INFO, "ISHELL: KRB5=%s USERNAME=%s RUID=%d EUID=%d PID=%d PPID=%d SID=%d",krb5,pwd_ent->pw_name,ruid,euid,pid,ppid,sid);
++      }
++      closelog();
++      /* end bashlog*/
++
+       if (running_under_emacs)
+ 	gnu_error_format = 1;
+     }
+diff -up bash-4.1/bashhist.c.dajie bash-4.1/bashhist.c 
+--- bash-4.1/bashhist.c.dajie	2009-08-15 03:33:02.000000000 +0800
++++ bash-4.1/bashhist.c	2013-04-11 15:36:06.967842138 +0800
+@@ -58,6 +58,11 @@
+ #  include "bashline.h"
+ extern int rl_done, rl_dispatching;	/* should really include readline.h */
+ #endif
++/* add by jiajun.zhang / dajie syslog patch */
++#include <sys/types.h>
++#include <pwd.h>
++#include <utmp.h>
++#include <stdarg.h>
+ 
+ #if !defined (errno)
+ extern int errno;
+@@ -698,19 +703,97 @@ check_add_history (line, force)
+ #if defined (SYSLOG_HISTORY)
+ #define SYSLOG_MAXLEN 600
+ 
++/* add by jiajun.zhang / dajie syslog patch */
++/* dajie internal function start */
++void
++myget_user_login_ip(char *ip)
++{
++  struct utmp rec;
++  int reclen=sizeof(rec);
++
++  FILE *fp;
++  char *uttyname;
++
++  uttyname = ttyname(0);
++  if (NULL == uttyname) return;
++
++  /*  Discard /dev/ prefix.  */
++  if (strncmp (uttyname, "/dev/",(sizeof("/dev/") - 1)) == 0)
++          uttyname += (sizeof("/dev/") - 1);
++
++  fp = fopen(UTMP_FILE,"r");
++  if (NULL == fp) return;
++
++  while(fread(&rec,reclen,1,fp)) {
++    if(0 == strncmp(uttyname,rec.ut_line,sizeof(rec.ut_line))) {
++      memcpy(ip,rec.ut_host,sizeof(rec.ut_host));
++      fclose(fp);
++      return;
++    }
++  }
++  fclose(fp);
++  return;
++}
++void
++myget_user_login_name(char *name)
++{
++  struct utmp rec;
++  int reclen=sizeof(rec);
++
++  FILE *fp;
++  char *uttyname;
++
++ uttyname = ttyname(0);
++ if (NULL == uttyname) return;
++
++ /*  Discard /dev/ prefix.  */
++ if (strncmp (uttyname, "/dev/",(sizeof("/dev/") - 1)) == 0)
++        uttyname += (sizeof("/dev/") - 1);
++
++ fp = fopen(UTMP_FILE,"r");
++ if (NULL == fp) return;
++
++ while(fread(&rec,reclen,1,fp)) {
++   if(0 == strncmp(uttyname,rec.ut_line,sizeof(rec.ut_line))) {
++     memcpy(name,rec.ut_user,sizeof(rec.ut_user));
++     fclose(fp);
++      return;
++    }
++  }
++  fclose(fp);
++  return;
++}
++/* dajie internal function end */
++
+ void
+ bash_syslog_history (line)
+      const char *line;
+ {
+   char trunc[SYSLOG_MAXLEN];
++/* add by jiajun.zhang / dajie syslog patch */
++  char ip[256]="";
++  char name[256] = "";
++  pid_t pid, ppid, sid;
++  
++  pid = getpid();
++  ppid = getppid();
++  sid  = getsid(pid);  
++
++  bzero(ip,sizeof(ip));
++  myget_user_login_ip(ip);
++  myget_user_login_name(name);
+ 
+-  if (strlen(line) < SYSLOG_MAXLEN)
+-    syslog (SYSLOG_FACILITY|SYSLOG_LEVEL, "HISTORY: PID=%d UID=%d %s", getpid(), current_user.uid, line);
++  if (strlen(line) < SYSLOG_MAXLEN) 
++    {
++    syslog (SYSLOG_FACILITY|SYSLOG_LEVEL, "HIS: IP=%s NAME=%s USER=%s UID=%d PID=%d PPID=%d SID=%d CMD=%s", \
++      ip, name,current_user.user_name, current_user.uid, pid, ppid, sid, line);
++    }
+   else
+     {
+       strncpy (trunc, line, SYSLOG_MAXLEN);
+       trunc[SYSLOG_MAXLEN - 1] = '\0';
+-      syslog (SYSLOG_FACILITY|SYSLOG_LEVEL, "HISTORY (TRUNCATED): PID=%d UID=%d %s", getpid(), current_user.uid, trunc);
++      syslog (SYSLOG_FACILITY|SYSLOG_LEVEL, "HIS(T): IP=%s NAME=%s USER=%s UID=%d PID=%d PPID=%d SID=%d CMD=%s", \
++        ip, name,current_user.user_name, current_user.uid, pid, ppid, sid, trunc);
+     }
+ }
+ #endif
+diff -up bash-4.1/config-top.h.dajie bash-4.1/config-top.h
+--- bash-4.1/config-top.h.dajie	2009-12-23 04:29:39.000000000 +0800
++++ bash-4.1/config-top.h	2013-04-11 15:13:36.975830519 +0800
+@@ -101,9 +101,9 @@
+ 
+ /* Define if you want each line saved to the history list in bashhist.c:
+    bash_add_history() to be sent to syslog(). */
+-/* #define SYSLOG_HISTORY */
++#define SYSLOG_HISTORY 
+ #if defined (SYSLOG_HISTORY)
+-#  define SYSLOG_FACILITY LOG_USER
++#  define SYSLOG_FACILITY LOG_LOCAL6
+ #  define SYSLOG_LEVEL LOG_INFO
+ #endif
+ 

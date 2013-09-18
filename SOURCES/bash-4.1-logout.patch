@@ -1,0 +1,36 @@
+diff -up bash-4.1/config-top.h.orig bash-4.1/config-top.h
+--- bash-4.1/config-top.h.orig	2012-08-29 12:47:11.283209308 +0200
++++ bash-4.1/config-top.h	2012-08-29 12:47:11.299209547 +0200
+@@ -80,7 +80,7 @@
+ /* #define SYS_BASHRC "/etc/bash.bashrc" */
+ 
+ /* System-wide .bash_logout for login shells. */
+-/* #define SYS_BASH_LOGOUT "/etc/bash.bash_logout" */
++#define SYS_BASH_LOGOUT "/etc/bash.bash_logout"
+ 
+ /* Define this to make non-interactive shells begun with argv[0][0] == '-'
+    run the startup files when not in posix mode. */
+diff -up bash-4.1/doc/bash.1.orig bash-4.1/doc/bash.1
+--- bash-4.1/doc/bash.1.orig	2012-08-29 12:47:11.297209518 +0200
++++ bash-4.1/doc/bash.1	2012-08-29 12:47:11.303209605 +0200
+@@ -325,8 +325,8 @@ option may be used when the shell is sta
+ .PP
+ When a login shell exits,
+ .B bash
+-reads and executes commands from the file \fI~/.bash_logout\fP, if it
+-exists.
++reads and executes commands from the files \fI~/.bash_logout\fP
++and \fI/etc/bash.bash_logout\fP, if the files exists.
+ .PP
+ When an interactive shell that is not a login shell is started,
+ .B bash
+@@ -9654,6 +9654,9 @@ The \fBbash\fP executable
+ .FN /etc/profile
+ The systemwide initialization file, executed for login shells
+ .TP
++.FN /etc/bash.bash_logout
++The systemwide login shell cleanup file, executed when a login shell exits
++.TP
+ .FN ~/.bash_profile
+ The personal initialization file, executed for login shells
+ .TP
